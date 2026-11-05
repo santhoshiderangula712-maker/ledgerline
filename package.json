@@ -1,0 +1,37 @@
+{
+  "name": "ledgerline",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+  "dev": "tsx watch src/server.ts",
+  "start": "tsx src/server.ts",
+  "test": "vitest run"
+},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/santhoshiderangula712-maker/ledgerline.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/santhoshiderangula712-maker/ledgerline/issues"
+  },
+  "homepage": "https://github.com/santhoshiderangula712-maker/ledgerline#readme",
+  "dependencies": {
+    "fastify": "^5.12.8",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/pg": "^8.23.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  }
+}

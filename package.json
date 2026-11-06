@@ -8,10 +8,10 @@
     "test": "tests"
   },
   "scripts": {
-  "dev": "tsx watch src/server.ts",
-  "start": "tsx src/server.ts",
-  "test": "vitest run"
-},
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "test": "vitest run"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/santhoshiderangula712-maker/ledgerline.git"

@@ -8,6 +8,7 @@
     "test": "tests"
   },
   "scripts": {
+    "migrate": "tsx db/migrate.ts",
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
     "test": "vitest run"

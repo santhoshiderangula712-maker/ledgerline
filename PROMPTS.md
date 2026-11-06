@@ -22,4 +22,4 @@ Each entry: date | what I asked | what it produced | what was wrong | what I did
 - **What the AI did:** It told me to treat the credential as compromised and to reset the password before doing anything else.
 - **What I did instead:** I reset the `neondb_owner` password in Neon, put the new connection string only in my local `.env` file and in Render's environment settings, and confirmed `.env` is ignored by git (`git status` does not list it).
 - **Rule going forward:** secrets go only in `.env` and the host's environment settings. Never in chat, README, PROMPTS.md or a commit. If I need help with an error, I share the error text only.
-- **Commit:** (add the commit link after you push; see step 4)
+- **Commit:** https://github.com/santhoshiderangula712-maker/ledgerline/commit/4cdb699

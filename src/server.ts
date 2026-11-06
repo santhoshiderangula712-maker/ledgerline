@@ -4,6 +4,10 @@ import pg from "pg";
 const app = Fastify({ logger: true });
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 
+app.get("/", async () => {
+  return { name: "LedgerLine", status: "running" };
+});
+
 app.get("/health", async () => {
   const { rows } = await pool.query("SELECT 1 AS ok");
   return { status: "ok", db: rows[0].ok === 1 };

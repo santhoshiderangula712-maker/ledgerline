@@ -23,3 +23,11 @@ Each entry: date | what I asked | what it produced | what was wrong | what I did
 - **What I did instead:** I reset the `neondb_owner` password in Neon, put the new connection string only in my local `.env` file and in Render's environment settings, and confirmed `.env` is ignored by git (`git status` does not list it).
 - **Rule going forward:** secrets go only in `.env` and the host's environment settings. Never in chat, README, PROMPTS.md or a commit. If I need help with an error, I share the error text only.
 - **Commit:** https://github.com/santhoshiderangula712-maker/ledgerline/commit/4cdb699
+
+## 2026-11-06: idempotent replay returned a different response shape (money/idempotency)
+
+- **Asked:** Claude to write `moveMoney` with idempotent replays.
+- **Produced:** the first call returned an in-memory object, while replays returned the `JSONB` copy read back from the database.
+- **Wrong:** the two had different key order, so "the second call returns the first result" was only true in value, not in exact form. My smoke test (`replay: all answers identical`) caught it. The money itself moved only once.
+- **Fixed:** both the success path and the refusal path now return `RETURNING response_body` from the stored row, so the first call and every replay come from the same source.
+- **Commit:** https://github.com/santhoshiderangula712-maker/ledgerline/commit/3408b79

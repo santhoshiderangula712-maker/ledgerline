@@ -72,8 +72,6 @@ Double-entry ledger in PostgreSQL, all money as integer paise. Every movement is
 
 | 20 | \*\*Hiding refused attempts or authorisation failures\*\* | Refusals in `refused\_attempts` (append-only); authorisation denials in `audit\_log`, \*\*not\*\* the victim's statement, so an attacker cannot pollute someone else's statement | `denied attempts are written to the audit log` | Closed |
 
-| 21 | \*\*Statement order misleading\*\* | Statement is sorted by `created\_at`, which is the transaction \*\*start\*\* time. Two concurrent transactions can commit in the opposite order, so a statement could show running balances out of sequence | none | \*\*Open (found while writing this)\*\*: fix is to sort posting rows by `postings.id`, the true chain order |
-
 
 
 \## Access and operations threats

@@ -195,8 +195,8 @@ async function moveInTx(c: PoolClient, i: MoveInput, requestHash: string): Promi
   for (const leg of legs) {
     // id / prev_hash / hash are filled in by the database trigger.
     await c.query(
-      `INSERT INTO postings (txn_id, account_id, amount_paise, balance_after_paise)
-       VALUES ($1, $2, $3, $4)`,
+      `INSERT INTO postings (txn_id, account_id, amount_paise, balance_after_paise, created_at)
+       VALUES ($1, $2, $3, $4, clock_timestamp())`,
       [txnId, leg.id, leg.delta.toString(), (leg.before + leg.delta).toString()]
     );
     await c.query(`UPDATE accounts SET balance_paise = balance_paise + $1 WHERE id = $2`, [
@@ -237,8 +237,8 @@ async function refuse(
 ): Promise<MoveResult> {
   await c.query(
     `INSERT INTO refused_attempts
-       (account_id, counterparty_account_id, initiated_by, type, amount_paise, reason, idempotency_key)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+       (account_id, counterparty_account_id, initiated_by, type, amount_paise, reason, idempotency_key, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, clock_timestamp())`,
     [ctx.accountId, ctx.counterpartyId, i.actorId, i.type, i.amountPaise, reason, i.idempotencyKey]
   );
   const body = { status: "refused", reason, type: i.type, amountPaise: i.amountPaise };

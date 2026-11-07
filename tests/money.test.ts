@@ -276,3 +276,27 @@ describe("failure halfway", () => {
     expect([await balance(a), await balance(b)]).toEqual([700, 300]);
   });
 });
+describe("statement order", () => {
+  it("under concurrency, ordering an account's postings by created_at gives a consistent running balance", async () => {
+    const u = await mkUser();
+    const [a, b] = [await mkAccount(u), await mkAccount(u)];
+    await deposit(u, a, 100000);
+    await deposit(u, b, 100000);
+    await Promise.all(
+      Array.from({ length: 40 }, (_, n) => (n % 2 ? transfer(u, a, b, 100) : transfer(u, b, a, 100)))
+    );
+    for (const acct of [a, b]) {
+      const rows = (
+        await pool.query(
+          `SELECT amount_paise, balance_after_paise FROM postings WHERE account_id = $1 ORDER BY created_at, id`,
+          [acct]
+        )
+      ).rows;
+      let running = 0;
+      for (const r of rows) {
+        running += Number(r.amount_paise);
+        expect(Number(r.balance_after_paise)).toBe(running);
+      }
+    }
+  });
+});

@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LedgerLine</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1c2430; --muted:#5d6877; --line:#dde2e9; --accent:#1f4fd8; --bad:#b42318; --good:#067647; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#12161c; --card:#1b212a; --text:#e8ecf2; --muted:#9aa5b4; --line:#2c3440; --accent:#6c93ff; --bad:#ff8a80; --good:#5fd39a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
+  header { display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between; padding:14px 16px; background:var(--card); border-bottom:1px solid var(--line); }
+  header h1 { margin:0; font-size:18px; }
+  main { max-width:980px; margin:0 auto; padding:16px; display:grid; gap:16px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; }
+  section h2 { margin:0 0 10px; font-size:16px; }
+  .muted { color:var(--muted); }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  label { display:grid; gap:4px; font-size:13px; color:var(--muted); }
+  input, select, button { font:inherit; padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--text); }
+  button { cursor:pointer; background:var(--accent); color:#fff; border-color:transparent; }
+  button.secondary { background:transparent; color:var(--text); border-color:var(--line); }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .accounts { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:10px; }
+  .acct { text-align:left; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:10px; padding:12px; }
+  .acct.sel { border-color:var(--accent); outline:2px solid var(--accent); }
+  .acct b { display:block; font-size:20px; margin-top:4px; }
+  .tablewrap { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:8px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .bad { color:var(--bad); } .good { color:var(--good); }
+  pre { margin:0; white-space:pre-wrap; word-break:break-word; font-size:13px; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:10px; }
+  .grid3 { display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:12px; }
+  form { display:grid; gap:8px; border:1px solid var(--line); border-radius:10px; padding:12px; }
+  form h3 { margin:0; font-size:14px; }
+  .login { max-width:380px; margin:40px auto; }
+  .login form { border:0; padding:0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>LedgerLine</h1>
+  <div id="who" class="row"></div>
+</header>
+<main id="app"></main>
+
+<script>
+"use strict";
+
+// ---------- tiny DOM helper: text is always inserted as text, never as HTML ----------
+function h(tag, props, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(props || {})) {
+    if (k === "class") el.className = v;
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else if (v === true) el.setAttribute(k, "");
+    else if (v !== false && v != null) el.setAttribute(k, v);
+  }
+  for (const kid of kids.flat()) if (kid != null) el.append(kid);
+  return el;
+}
+
+// ---------- state ----------
+let session = null;
+try { session = JSON.parse(sessionStorage.getItem("ledgerline")); } catch (e) { session = null; }
+function saveSession() {
+  try {
+    if (session) sessionStorage.setItem("ledgerline", JSON.stringify(session));
+    else sessionStorage.removeItem("ledgerline");
+  } catch (e) { /* storage may be unavailable; the page still works until reload */ }
+}
+let accounts = [];
+let selected = null;
+let statement = [];
+let message = "";
+let busy = false;
+
+// ---------- money formatting: integers only, no floating point for amounts ----------
+function rupees(paise) {
+  const neg = paise < 0;
+  const p = Math.abs(paise);
+  const whole = Math.floor(p / 100);
+  const frac = String(p % 100).padStart(2, "0");
+  return (neg ? "-" : "") + "\u20B9" + whole.toLocaleString("en-IN") + "." + frac;
+}
+function toPaise(text) {
+  const m = /^(\d{1,8})(?:\.(\d{1,2}))?$/.exec(String(text).trim());
+  if (!m) return null;
+  const paise = Number(m[1]) * 100 + Number((m[2] || "").padEnd(2, "0"));
+  return paise > 0 ? paise : null;
+}
+
+// ---------- API ----------
+async function api(method, path, body, key) {
+  const headers = {};
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  if (session) headers["Authorization"] = "Bearer " + session.token;
+  if (key) headers["Idempotency-Key"] = key;
+  const res = await fetch(path, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
+  let json = null;
+  try { json = await res.json(); } catch (e) { json = null; }
+  if (res.status === 401 && session && path !== "/auth/login") {
+    session = null; saveSession(); accounts = []; statement = []; message = "Session expired. Please sign in again.";
+    render();
+  }
+  return { status: res.status, json, replayed: res.headers.get("idempotent-replayed") };
+}
+
+// One Idempotency-Key per logical request. If the request fails in transit, the next
+// click with the SAME values reuses the SAME key, so a retry can never pay twice.
+const pending = {};
+function newKey() {
+  // crypto.randomUUID exists only on secure pages (https/localhost); getRandomValues works everywhere.
+  if (crypto.randomUUID) return crypto.randomUUID();
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+function keyFor(form, signature) {
+  const p = pending[form];
+  if (p && p.signature === signature) return p.key;
+  const key = newKey();
+  pending[form] = { signature, key };
+  return key;
+}
+
+async function submitMoney(form, path, payload, twice) {
+  if (busy) return;
+  busy = true;
+  message = "Sending...";
+  render();
+  try {
+    const key = keyFor(form, JSON.stringify(payload));
+    const calls = [api("POST", path, payload, key)];
+    if (twice) calls.push(api("POST", path, payload, key)); // same key, fired at the same time
+    const results = await Promise.all(calls);
+    if (!results.some((r) => r.status >= 500)) delete pending[form];
+    message = results
+      .map((r, i) => {
+        const head = (twice ? "Request " + (i + 1) + ": " : "") + "HTTP " + r.status +
+          (r.replayed === "true" ? "  (replay: answered from the first request, no money moved again)" : "");
+        return head + "\n" + JSON.stringify(r.json, null, 2);
+      })
+      .join("\n\n");
+  } catch (e) {
+    message = "Request failed before an answer arrived. Click again with the same values: the same Idempotency-Key is reused, so it cannot pay twice.";
+  }
+  busy = false;
+  await refresh();
+}
+
+async function refresh() {
+  if (!session) { render(); return; }
+  const a = await api("GET", "/accounts");
+  if (a.status === 200) {
+    accounts = a.json;
+    if (!accounts.find((x) => x.id === selected)) selected = accounts.length ? accounts[0].id : null;
+    statement = [];
+    if (selected !== null) {
+      const s = await api("GET", "/accounts/" + selected + "/statement?limit=50");
+      if (s.status === 200) statement = s.json;
+    }
+  }
+  render();
+}
+
+async function login(email, password) {
+  const r = await api("POST", "/auth/login", { email, password });
+  if (r.status === 200) {
+    session = { token: r.json.token, role: r.json.role, email };
+    saveSession();
+    message = "";
+    await refresh();
+  } else {
+    message = r.status === 429 ? "Too many attempts. Wait a minute and try again." : "Sign-in failed. Check the email and password.";
+    render();
+  }
+}
+
+async function logout() {
+  await api("POST", "/auth/logout").catch(() => {});
+  session = null; saveSession(); accounts = []; statement = []; selected = null; message = "";
+  render();
+}
+
+// ---------- views ----------
+function loginView() {
+  const email = h("input", { type: "email", id: "email", autocomplete: "username", required: true });
+  const password = h("input", { type: "password", id: "password", autocomplete: "current-password", required: true });
+  const demo = (label, e, p) => h("button", { type: "button", class: "secondary", onclick: () => { email.value = e; password.value = p; } }, label);
+  return h("section", { class: "login" },
+    h("h2", {}, "Sign in"),
+    h("form", { onsubmit: (ev) => { ev.preventDefault(); login(email.value, password.value); } },
+      h("label", {}, "Email", email),
+      h("label", {}, "Password", password),
+      h("button", { type: "submit" }, "Sign in")),
+    h("p", { class: "muted" }, "Demo accounts (fake money). Click one to fill the form:"),
+    h("div", { class: "row" },
+      demo("Admin", "admin@ledgerline.test", "Admin-demo-2026"),
+      demo("Holder: Alice", "alice@ledgerline.test", "Alice-demo-2026"),
+      demo("Holder: Bob", "bob@ledgerline.test", "Bob-demo-2026"),
+      demo("Auditor", "auditor@ledgerline.test", "Auditor-demo-2026")),
+    message ? h("pre", { style: "margin-top:12px" }, message) : null);
+}
+
+function accountsView() {
+  return h("section", {},
+    h("h2", {}, "Accounts"),
+    accounts.length === 0 ? h("p", { class: "muted" }, "No accounts to show.") : null,
+    h("div", { class: "accounts" },
+      accounts.map((a) =>
+        h("button", { type: "button", class: "acct" + (a.id === selected ? " sel" : ""), onclick: () => { selected = a.id; refresh(); } },
+          h("span", { class: "muted" }, "#" + a.id + " \u00B7 " + a.name + (a.status !== "active" ? " \u00B7 " + a.status.toUpperCase() : "")),
+          h("b", {}, rupees(a.balancePaise))))));
+}
+
+function statementView() {
+  const acct = accounts.find((a) => a.id === selected);
+  return h("section", {},
+    h("h2", {}, acct ? "Statement: #" + acct.id + " " + acct.name : "Statement"),
+    h("p", { class: "muted" }, "Every posting and every refused attempt, newest first. Refusals moved no money."),
+    h("div", { class: "tablewrap" },
+      h("table", {},
+        h("thead", {}, h("tr", {}, ["Time", "Type", "Amount", "Balance after", "Initiated by", "Result"].map((t, i) => h("th", { class: i === 2 || i === 3 ? "num" : "" }, t)))),
+        h("tbody", {},
+          statement.length === 0 ? h("tr", {}, h("td", { colspan: 6, class: "muted" }, "No entries yet.")) : null,
+          statement.map((e) => {
+            const refused = e.kind === "refused";
+            return h("tr", {},
+              h("td", {}, new Date(e.at).toLocaleString()),
+              h("td", {}, e.type),
+              h("td", { class: "num " + (refused ? "" : e.amountPaise < 0 ? "bad" : "good") }, e.amountPaise === null ? "" : rupees(e.amountPaise)),
+              h("td", { class: "num" }, e.runningBalancePaise === null ? "" : rupees(e.runningBalancePaise)),
+              h("td", {}, e.initiatedBy || ""),
+              h("td", { class: refused ? "bad" : "" }, refused ? "REFUSED: " + e.reason : "completed"));
+          })))));
+}
+
+function moneyForms() {
+  const twice = h("input", { type: "checkbox", id: "twice" });
+  const options = () => accounts.map((a) => h("option", { value: a.id }, "#" + a.id + " " + a.name));
+  const amountInput = () => h("input", { type: "text", inputmode: "decimal", placeholder: "e.g. 250.50", required: true });
+
+  function build(title, formName, path, fields, makePayload) {
+    const refs = {};
+    const el = h("form", {
+      onsubmit: (ev) => {
+        ev.preventDefault();
+        const payload = makePayload(refs);
+        if (!payload) { message = "Enter a valid amount in rupees (up to 2 decimals) and valid account numbers."; render(); return; }
+        submitMoney(formName, path, payload, twice.checked);
+      },
+    }, h("h3", {}, title));
+    for (const [label, key, node] of fields()) { refs[key] = node; el.append(h("label", {}, label, node)); }
+    el.append(h("button", { type: "submit", disabled: busy || accounts.length === 0 }, title));
+    return el;
+  }
+
+  const num = (v) => { const n = Number(v); return Number.isSafeInteger(n) && n > 0 ? n : null; };
+
+  return h("section", {},
+    h("h2", {}, "Move money"),
+    h("div", { class: "grid3" },
+      build("Deposit", "deposit", "/deposits",
+        () => [["Into account", "acct", h("select", {}, options())], ["Amount (\u20B9)", "amt", amountInput()]],
+        (r) => { const a = toPaise(r.amt.value), id = num(r.acct.value); return a && id ? { accountId: id, amountPaise: a } : null; }),
+      build("Withdraw", "withdraw", "/withdrawals",
+        () => [["From account", "acct", h("select", {}, options())], ["Amount (\u20B9)", "amt", amountInput()]],
+        (r) => { const a = toPaise(r.amt.value), id = num(r.acct.value); return a && id ? { accountId: id, amountPaise: a } : null; }),
+      build("Transfer", "transfer", "/transfers",
+        () => [["From my account", "from", h("select", {}, options())],
+               ["To account number", "to", h("input", { type: "text", inputmode: "numeric", placeholder: "e.g. 12", required: true })],
+               ["Amount (\u20B9)", "amt", amountInput()]],
+        (r) => { const a = toPaise(r.amt.value), f = num(r.from.value), t = num(r.to.value); return a && f && t ? { fromAccountId: f, toAccountId: t, amountPaise: a } : null; })),
+    h("div", { class: "row", style: "margin-top:12px" }, twice, h("label", { for: "twice", style: "display:inline" },
+      "Demo: send the same request twice at once (same Idempotency-Key). Money must move only once.")));
+}
+
+function adminTools() {
+  const isAdmin = session.role === "admin";
+  const acct = accounts.find((a) => a.id === selected);
+  const verify = async () => {
+    const r = await api("GET", "/admin/verify-ledger");
+    message = "HTTP " + r.status + "\n" + JSON.stringify(r.json, null, 2);
+    render();
+  };
+  const setStatus = async (status) => {
+    const r = await api("POST", "/admin/accounts/" + selected + "/status", { status });
+    message = "HTTP " + r.status + "\n" + JSON.stringify(r.json, null, 2);
+    await refresh();
+  };
+  return h("section", {},
+    h("h2", {}, isAdmin ? "Admin tools" : "Auditor tools"),
+    h("p", { class: "muted" }, isAdmin
+      ? "Admins can freeze accounts and verify the ledger. Admins cannot move money."
+      : "Auditors are read-only: they can view everything and verify the ledger, but cannot change anything."),
+    h("div", { class: "row" },
+      h("button", { type: "button", onclick: verify }, "Verify ledger (hash chain + balances)"),
+      isAdmin && acct ? h("button", { type: "button", class: "secondary", onclick: () => setStatus(acct.status === "active" ? "frozen" : "active") },
+        (acct.status === "active" ? "Freeze" : "Unfreeze") + " account #" + acct.id) : null));
+}
+
+function dashboard() {
+  const out = [accountsView(), statementView()];
+  if (session.role === "holder") out.splice(1, 0, moneyForms());
+  else out.splice(1, 0, adminTools());
+  out.push(h("section", {}, h("h2", {}, "Last response"), h("pre", {}, message || "Nothing sent yet.")));
+  return out;
+}
+
+function render() {
+  const app = document.getElementById("app");
+  const who = document.getElementById("who");
+  app.replaceChildren();
+  who.replaceChildren();
+  if (!session) { app.append(loginView()); return; }
+  who.append(h("span", { class: "muted" }, session.email + " (" + session.role + ")"),
+             h("button", { type: "button", class: "secondary", onclick: logout }, "Sign out"));
+  for (const node of dashboard()) app.append(node);
+}
+
+render();
+if (session) refresh();
+</script>
+</body>
+</html>

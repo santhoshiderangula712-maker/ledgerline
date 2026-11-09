@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import Fastify from "fastify";
 import rateLimit from "@fastify/rate-limit";
 import { pool } from "./db.js";
@@ -59,7 +61,24 @@ export function buildApp() {
   });
 
   // ---------------- public ----------------
-  app.get("/", async () => ({ name: "LedgerLine", status: "running" }));
+  const indexHtml = (() => {
+    try {
+      return fs.readFileSync(path.join(process.cwd(), "public", "index.html"), "utf8");
+    } catch {
+      return null;
+    }
+  })();
+  app.get("/", async (_req, reply) => {
+    if (!indexHtml) return { name: "LedgerLine", status: "running" };
+    return reply
+      .header(
+        "Content-Security-Policy",
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'"
+      )
+      .header("X-Content-Type-Options", "nosniff")
+      .type("text/html; charset=utf-8")
+      .send(indexHtml);
+  });
   app.get("/health", async () => {
     const { rows } = await pool.query("SELECT 1 AS ok");
     return { status: "ok", db: rows[0].ok === 1 };

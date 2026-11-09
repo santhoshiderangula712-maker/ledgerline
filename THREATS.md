@@ -100,6 +100,8 @@ Double-entry ledger in PostgreSQL, all money as integer paise. Every movement is
 
 | 30 | **App compromise** (SQL injection or a code bug) | All queries are parameterised. The app's database role cannot update, delete, truncate or alter ledger tables, so even full SQL control as the app cannot rewrite history, only append (`tests/role.test.ts`) | **Mitigated**: the app role can still INSERT into `postings`. The balance, chain and zero-sum triggers constrain it, but it could append a balanced, validly chained, fraudulent transaction |
 
+| 31 | **UI-side risks**: script injection through statement data, token theft from the browser | The page builds every element from text, never from HTML strings; a content-security policy restricts it to its own origin; money forms reuse one Idempotency-Key per logical request, so a double-click or retry cannot pay twice | **Mitigated**: the session token is kept in `sessionStorage` (cleared when the tab closes) and is readable by script on the page, so an XSS bug would expose it. The CSP allows inline script, which weakens that protection |
+
 
 
 \## Mutation checks I performed

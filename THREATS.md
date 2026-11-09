@@ -97,6 +97,7 @@ Double-entry ledger in PostgreSQL, all money as integer paise. Every movement is
 | 28 | \*\*Secrets\*\* | `.env` and `.env.test.local` are git-ignored; tests read only the test branch file | \*\*Mitigated\*\*: a database password was pasted into a chat twice and rotated each time (see PROMPTS.md) |
 
 | 29 | \*\*Public demo credentials\*\* | Required by the brief; fake money only | Accepted |
+
 | 30 | **App compromise** (SQL injection or a code bug) | All queries are parameterised. The app's database role cannot update, delete, truncate or alter ledger tables, so even full SQL control as the app cannot rewrite history, only append (`tests/role.test.ts`) | **Mitigated**: the app role can still INSERT into `postings`. The balance, chain and zero-sum triggers constrain it, but it could append a balanced, validly chained, fraudulent transaction |
 
 

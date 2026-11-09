@@ -62,7 +62,7 @@ Double-entry ledger in PostgreSQL, all money as integer paise. Every movement is
 
 | 15 | \*\*Edit or delete a ledger row\*\* | `BEFORE UPDATE OR DELETE` triggers raise on `transactions`, `postings`, `refused\_attempts`, `audit\_log`, `idempotency\_replays`; TRUNCATE blocked the same way | `UPDATE and DELETE ... are refused`, `TRUNCATE ... is refused` | Mitigated (see 16) |
 
-| 16 | \*\*Privileged tampering\*\*: the table owner drops or disables a trigger | Hash chain: each posting stores the hash of the previous one, computed \*\*in the database\*\*; `verify\_ledger()` recomputes it; `reconcile\_accounts()` compares balances with postings | `verify\_ledger() detects a tampered posting` (tamper simulated in a rolled-back transaction) | \*\*Open\*\*: the app currently connects as the table owner, so a bug or injected SQL could disable triggers. Planned fix: separate app role with only SELECT/INSERT on ledger tables |
+| 16 | **Privileged tampering**: the table owner drops or disables a trigger | Hash chain: each posting stores the hash of the previous one, computed **in the database**; `verify_ledger()` recomputes it; `reconcile_accounts()` compares balances with postings. The running app connects as `ledgerline_runtime` (a member of `ledgerline_app`) with SELECT and INSERT only on ledger tables and no ownership, so it cannot disable or drop triggers or alter the ledger | `verify_ledger() detects a tampered posting`; `tests/role.test.ts` (4 tests, run as the restricted role) | **Mitigated**: the app can no longer tamper. **Still open**: the owner credential exists (used for migrations), and an owner or superuser can still rewrite everything; the head-hash export (threat 17) is not built |
 
 | 17 | \*\*Deleting the newest rows\*\* | Chain verification alone cannot see the tail removed; `reconcile\_accounts()` would flag it only if balances are not rewritten too | none | \*\*Open\*\*: mitigation (periodically exporting the head hash outside the database) is not built |
 
@@ -97,6 +97,7 @@ Double-entry ledger in PostgreSQL, all money as integer paise. Every movement is
 | 28 | \*\*Secrets\*\* | `.env` and `.env.test.local` are git-ignored; tests read only the test branch file | \*\*Mitigated\*\*: a database password was pasted into a chat twice and rotated each time (see PROMPTS.md) |
 
 | 29 | \*\*Public demo credentials\*\* | Required by the brief; fake money only | Accepted |
+| 30 | **App compromise** (SQL injection or a code bug) | All queries are parameterised. The app's database role cannot update, delete, truncate or alter ledger tables, so even full SQL control as the app cannot rewrite history, only append (`tests/role.test.ts`) | **Mitigated**: the app role can still INSERT into `postings`. The balance, chain and zero-sum triggers constrain it, but it could append a balanced, validly chained, fraudulent transaction |
 
 
 
